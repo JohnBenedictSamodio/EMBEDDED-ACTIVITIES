@@ -1,0 +1,241 @@
+// ============================================================
+// LABORATORY 1
+// ESP32 8-BIT ASCII PARALLEL DATA TRANSMISSION
+//
+// STUDENT A - SENDER
+// ============================================================
+
+// Bit 0 -> GPIO 4
+// Bit 1 -> GPIO 5
+// Bit 2 -> GPIO 18
+// Bit 3 -> GPIO 19
+// Bit 4 -> GPIO 21
+// Bit 5 -> GPIO 22
+// Bit 6 -> GPIO 23
+// Bit 7 -> GPIO 25
+
+const int DATA_PINS[8] = {
+  4, 5, 18, 19, 21, 22, 23, 25
+};
+
+
+// ============================================================
+// TIMING
+// ============================================================
+
+// Time that START remains on the lines.
+const unsigned long START_TIME = 3000;
+
+// Time that each ASCII character remains on the lines.
+const unsigned long DATA_TIME = 2000;
+
+// Time between characters.
+// During this time all 8 data lines are LOW.
+const unsigned long GAP_TIME = 1000;
+
+// Time that the final END state remains LOW.
+const unsigned long END_TIME = 3000;
+
+
+// ============================================================
+// SEND ONE BYTE
+// ============================================================
+
+void sendByte(byte value) {
+
+  for (int bit = 0; bit < 8; bit++) {
+
+    byte bitValue = (value >> bit) & 1;
+
+    digitalWrite(DATA_PINS[bit], bitValue);
+  }
+}
+
+
+// ============================================================
+// CLEAR ALL DATA LINES
+// ============================================================
+
+void clearDataLines() {
+
+  for (int bit = 0; bit < 8; bit++) {
+
+    digitalWrite(DATA_PINS[bit], LOW);
+  }
+}
+
+
+// ============================================================
+// PRINT 8-BIT BINARY
+// ============================================================
+
+void printBinary(byte value) {
+
+  for (int bit = 7; bit >= 0; bit--) {
+
+    Serial.print((value >> bit) & 1);
+  }
+}
+
+
+// ============================================================
+// SETUP
+// ============================================================
+
+void setup() {
+
+  Serial.begin(115200);
+
+  // Configure the eight GPIO pins as OUTPUT.
+  for (int bit = 0; bit < 8; bit++) {
+
+    pinMode(DATA_PINS[bit], OUTPUT);
+  }
+
+  // Make sure all lines start LOW.
+  clearDataLines();
+
+
+  Serial.println();
+  Serial.println("==========================================");
+  Serial.println(" ESP32 8-BIT ASCII PARALLEL SENDER");
+  Serial.println("==========================================");
+  Serial.println();
+
+  Serial.println("Bit 0 -> GPIO 4");
+  Serial.println("Bit 1 -> GPIO 5");
+  Serial.println("Bit 2 -> GPIO 18");
+  Serial.println("Bit 3 -> GPIO 19");
+  Serial.println("Bit 4 -> GPIO 21");
+  Serial.println("Bit 5 -> GPIO 22");
+  Serial.println("Bit 6 -> GPIO 23");
+  Serial.println("Bit 7 -> GPIO 25");
+
+  Serial.println();
+  Serial.println("Each character is displayed for 2 seconds.");
+  Serial.println("Enter a word and press ENTER.");
+  Serial.println();
+}
+
+
+// ============================================================
+// LOOP
+// ============================================================
+
+void loop() {
+
+  if (Serial.available() > 0) {
+
+    String message = Serial.readStringUntil('\n');
+
+    message.trim();
+
+
+    // Ignore empty messages.
+    if (message.length() == 0) {
+
+      return;
+    }
+
+
+    Serial.println();
+    Serial.println("==========================================");
+    Serial.print("TRANSMITTING: ");
+    Serial.println(message);
+    Serial.println("==========================================");
+    Serial.println();
+
+
+    // ========================================================
+    // START
+    // ========================================================
+
+    // 11111111 means START.
+    sendByte(0xFF);
+
+    Serial.println("START");
+    Serial.println("Binary: 11111111");
+    Serial.println();
+
+    delay(START_TIME);
+
+
+    // ========================================================
+    // SEND EACH CHARACTER
+    // ========================================================
+
+    for (int i = 0; i < message.length(); i++) {
+
+      char character = message.charAt(i);
+
+      byte asciiValue = (byte)character;
+
+
+      Serial.print("Character ");
+      Serial.print(i + 1);
+      Serial.print(": ");
+
+      Serial.print(character);
+
+      Serial.print(" | ASCII: ");
+      Serial.print(asciiValue);
+
+      Serial.print(" | Binary: ");
+
+      printBinary(asciiValue);
+
+      Serial.println();
+
+
+      // -----------------------------------------------
+      // Put the ASCII value on the eight GPIO lines.
+      // -----------------------------------------------
+
+      sendByte(asciiValue);
+
+
+      // Keep the binary value visible for 2 seconds.
+      delay(DATA_TIME);
+
+
+      // -----------------------------------------------
+      // CLEAR/GAP
+      // -----------------------------------------------
+
+      // All LEDs turn OFF.
+      clearDataLines();
+
+
+      // Keep all lines LOW for 1 second.
+      // This separates this character from the next one.
+      delay(GAP_TIME);
+    }
+
+
+    // ========================================================
+    // END
+    // ========================================================
+
+    // All lines remain LOW to indicate END.
+    clearDataLines();
+
+    Serial.println();
+    Serial.println("END");
+    Serial.println("Binary: 00000000");
+
+    delay(END_TIME);
+
+
+    // Make sure everything is OFF.
+    clearDataLines();
+
+
+    Serial.println();
+    Serial.println("==========================================");
+    Serial.println("TRANSMISSION COMPLETE");
+    Serial.println("==========================================");
+    Serial.println();
+
+    Serial.println("Enter another word:");
+  }
+}
