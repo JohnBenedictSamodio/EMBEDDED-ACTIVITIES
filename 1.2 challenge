@@ -1,0 +1,45 @@
+// Pin assignments
+const int ON_BUTTON_PIN = 18;
+const int OFF_BUTTON_PIN = 19;
+const int LED_PIN = 23;
+
+void setup() {
+  // Configure both buttons as inputs with internal pull-up resistors
+  pinMode(ON_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(OFF_BUTTON_PIN, INPUT_PULLUP);
+
+  // Configure LED as an output
+  pinMode(LED_PIN, OUTPUT);
+
+  // Make sure the LED starts OFF
+  digitalWrite(LED_PIN, LOW);
+}
+
+void loop() {
+
+  // Check ON button
+  if (digitalRead(ON_BUTTON_PIN) == LOW) {
+    digitalWrite(LED_PIN, HIGH);
+
+    // Wait until the button is released
+    while (digitalRead(ON_BUTTON_PIN) == LOW) {
+      delay(10);
+    }
+
+    // Small debounce delay
+    delay(50);
+  }
+
+  // Check OFF button
+  if (digitalRead(OFF_BUTTON_PIN) == LOW) {
+    digitalWrite(LED_PIN, LOW);
+
+    // Wait until the button is released
+    while (digitalRead(OFF_BUTTON_PIN) == LOW) {
+      delay(10);
+    }
+
+    // Small debounce delay
+    delay(50);
+  }
+}
