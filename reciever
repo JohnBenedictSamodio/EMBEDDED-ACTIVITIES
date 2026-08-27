@@ -1,10 +1,18 @@
-// =====================================================
+// ============================================================
 // LABORATORY 1
 // ESP32 8-BIT ASCII PARALLEL DATA TRANSMISSION
-// RECEIVER
-// =====================================================
+//
+// STUDENT B - RECEIVER
+//
+// 8 PARALLEL DATA LINES
+// NO SERIAL COMMUNICATION BETWEEN ESP32 BOARDS
+// ============================================================
 
-// Eight parallel input pins.
+
+// ============================================================
+// GPIO CONFIGURATION
+// ============================================================
+
 // Bit 0 -> GPIO 4
 // Bit 1 -> GPIO 5
 // Bit 2 -> GPIO 18
@@ -18,17 +26,55 @@ const int DATA_PINS[8] = {
   4, 5, 18, 19, 21, 22, 23, 25
 };
 
-// Special protocol values
-const byte START_MARKER = 0xFF;
-const byte END_MARKER   = 0x00;
 
-// Stores the received word.
+// ============================================================
+// TIMING
+// ============================================================
+
+// Sender keeps each character on the lines for 2 seconds.
+const unsigned long CHARACTER_TIME = 2000;
+
+// Sender keeps the lines LOW between characters for 1 second.
+const unsigned long GAP_TIME = 1000;
+
+// Sender keeps the lines LOW for 3 seconds after the message.
+//
+// Therefore, anything LOW for 2.5 seconds or longer is
+// considered the END of the transmission.
+const unsigned long END_THRESHOLD = 2500;
+
+
+// ============================================================
+// RECEIVER STATES
+// ============================================================
+
+enum ReceiverState {
+
+  WAITING_FOR_START,
+  WAITING_FOR_DATA,
+  WAITING_FOR_GAP
+};
+
+ReceiverState state = WAITING_FOR_START;
+
+
+// ============================================================
+// VARIABLES
+// ============================================================
+
 String receivedWord = "";
 
-// -----------------------------------------------------
-// Read the eight GPIO inputs and reconstruct
-// the 8-bit binary value.
-// -----------------------------------------------------
+// Records when the data lines became LOW.
+unsigned long lowStartTime = 0;
+
+// Prevents repeatedly printing the same character.
+byte lastReceivedValue = 0;
+
+
+// ============================================================
+// READ ALL 8 GPIO INPUTS
+// ============================================================
+
 byte readByte() {
 
   byte value = 0;
@@ -37,119 +83,292 @@ byte readByte() {
 
     int bitValue = digitalRead(DATA_PINS[bit]);
 
-    // Put the input bit into its correct position.
     value |= ((byte)bitValue << bit);
   }
 
   return value;
 }
 
-// -----------------------------------------------------
-// Print an 8-bit value in binary.
-// -----------------------------------------------------
+
+// ============================================================
+// PRINT 8-BIT BINARY
+// ============================================================
+
 void printBinary(byte value) {
 
   for (int bit = 7; bit >= 0; bit--) {
-    Serial.print((value >> bit) & 0x01);
+
+    Serial.print((value >> bit) & 1);
   }
 }
 
-// -----------------------------------------------------
+
+// ============================================================
 // SETUP
-// -----------------------------------------------------
+// ============================================================
+
 void setup() {
 
   Serial.begin(115200);
 
-  // Configure all eight GPIO pins as inputs.
+
+  // Configure all eight parallel data lines as INPUT.
   for (int bit = 0; bit < 8; bit++) {
+
     pinMode(DATA_PINS[bit], INPUT);
   }
 
+
   Serial.println();
-  Serial.println("=================================");
-  Serial.println("ESP32 ASCII PARALLEL RECEIVER");
-  Serial.println("=================================");
-  Serial.println("Waiting for transmission...");
+  Serial.println("==========================================");
+  Serial.println(" ESP32 8-BIT ASCII PARALLEL RECEIVER");
+  Serial.println("==========================================");
+  Serial.println();
+
+  Serial.println("DATA INPUT PINS:");
+
+  Serial.println("Bit 0 -> GPIO 4");
+  Serial.println("Bit 1 -> GPIO 5");
+  Serial.println("Bit 2 -> GPIO 18");
+  Serial.println("Bit 3 -> GPIO 19");
+  Serial.println("Bit 4 -> GPIO 21");
+  Serial.println("Bit 5 -> GPIO 22");
+  Serial.println("Bit 6 -> GPIO 23");
+  Serial.println("Bit 7 -> GPIO 25");
+
+  Serial.println();
+
+  Serial.println("Waiting for START...");
   Serial.println();
 }
 
-// -----------------------------------------------------
+
+// ============================================================
 // LOOP
-// -----------------------------------------------------
+// ============================================================
+
 void loop() {
 
-  // Read the eight parallel data lines.
+  // Continuously read all eight parallel GPIO lines.
   byte value = readByte();
 
-  // ---------------------------------------------------
-  // WAIT FOR START MARKER
-  // ---------------------------------------------------
 
-  if (value == START_MARKER) {
+  // ==========================================================
+  // STATE 1
+  // WAITING FOR START
+  // ==========================================================
 
-    // Clear the previous word.
-    receivedWord = "";
+  if (state == WAITING_FOR_START) {
 
-    Serial.println("START marker detected.");
-    Serial.println("Receiving...");
-    
-    // Wait until the sender moves away from the
-    // START marker before reading character data.
-    delay(120);
+    // 11111111 is our START signal.
+    if (value == 0xFF) {
 
-    return;
-  }
-
-  // ---------------------------------------------------
-  // END MARKER
-  // ---------------------------------------------------
-
-  if (value == END_MARKER) {
-
-    // Only display the word if something was received.
-    if (receivedWord.length() > 0) {
+      // Start a completely new word.
+      receivedWord = "";
 
       Serial.println();
-      Serial.println("=================================");
-      Serial.print("RECEIVED WORD: ");
-      Serial.println(receivedWord);
-      Serial.println("=================================");
+      Serial.println("==========================================");
+      Serial.println("START DETECTED");
+      Serial.println("Binary: 11111111");
+      Serial.println("==========================================");
       Serial.println();
-      Serial.println("Waiting for next transmission...");
-      Serial.println();
+
+
+      // Move to the DATA state.
+      state = WAITING_FOR_DATA;
+
+      // Prevent the same START from being processed again.
+      lastReceivedValue = 0xFF;
+
+      return;
     }
 
-    // Wait until the sender moves away from
-    // the END marker.
-    delay(120);
 
     return;
   }
 
-  // ---------------------------------------------------
-  // PRINTABLE ASCII CHARACTER
-  // ---------------------------------------------------
 
-  // Printable ASCII characters normally range from
-  // decimal 32 to 126.
-  if (value >= 32 && value <= 126) {
+  // ==========================================================
+  // STATE 2
+  // WAITING FOR DATA
+  // ==========================================================
 
-    char character = (char)value;
+  if (state == WAITING_FOR_DATA) {
 
-    // Add the character to the received word.
-    receivedWord += character;
+    // --------------------------------------------------------
+    // If all eight lines are LOW, a gap has started.
+    // --------------------------------------------------------
 
-    Serial.print("Received ASCII: ");
-    Serial.print(value);
+    if (value == 0x00) {
 
-    Serial.print("   Binary: ");
-    printBinary(value);
+      lowStartTime = millis();
 
-    Serial.print("   Character: ");
-    Serial.println(character);
+      state = WAITING_FOR_GAP;
 
-    // Wait for the sender to move to the next byte.
-    delay(120);
+      return;
+    }
+
+
+    // --------------------------------------------------------
+    // Ignore START code while receiving data.
+    // --------------------------------------------------------
+
+    if (value == 0xFF) {
+
+      return;
+    }
+
+
+    // --------------------------------------------------------
+    // Check for printable ASCII.
+    // --------------------------------------------------------
+
+    if (value >= 32 && value <= 126) {
+
+      char character = (char)value;
+
+
+      // Add the character to the received word.
+      receivedWord += character;
+
+
+      Serial.print("Received character: ");
+      Serial.print(character);
+
+      Serial.print(" | ASCII: ");
+      Serial.print(value);
+
+      Serial.print(" | Binary: ");
+
+      printBinary(value);
+
+      Serial.println();
+
+
+      // Remember the character.
+      lastReceivedValue = value;
+
+
+      // We now wait for the Sender to make
+      // all eight lines LOW.
+      state = WAITING_FOR_DATA;
+
+
+      return;
+    }
+
+
+    return;
+  }
+
+
+  // ==========================================================
+  // STATE 3
+  // WAITING FOR GAP
+  // ==========================================================
+
+  if (state == WAITING_FOR_GAP) {
+
+    // --------------------------------------------------------
+    // Check the current LOW duration.
+    // --------------------------------------------------------
+
+    unsigned long lowDuration = millis() - lowStartTime;
+
+
+    // --------------------------------------------------------
+    // CASE A:
+    // A new character has arrived.
+    // --------------------------------------------------------
+
+    if (value != 0x00) {
+
+      // A new character has arrived before the END threshold.
+
+      if (value >= 32 && value <= 126) {
+
+        char character = (char)value;
+
+
+        // Add the new character.
+        receivedWord += character;
+
+
+        Serial.print("Received character: ");
+        Serial.print(character);
+
+        Serial.print(" | ASCII: ");
+        Serial.print(value);
+
+        Serial.print(" | Binary: ");
+
+        printBinary(value);
+
+        Serial.println();
+
+
+        lastReceivedValue = value;
+
+
+        // We are now waiting for the next LOW gap.
+        state = WAITING_FOR_DATA;
+
+
+        return;
+      }
+
+
+      // Ignore unexpected values.
+      return;
+    }
+
+
+    // --------------------------------------------------------
+    // CASE B:
+    // Lines are still LOW.
+    // Check whether this is the END.
+    // --------------------------------------------------------
+
+    if (value == 0x00) {
+
+      // If LOW has lasted at least 2.5 seconds,
+      // consider the transmission finished.
+
+      if (lowDuration >= END_THRESHOLD) {
+
+        Serial.println();
+        Serial.println("==========================================");
+        Serial.println("END OF TRANSMISSION");
+        Serial.println("==========================================");
+
+
+        Serial.print("RECEIVED WORD: ");
+        Serial.println(receivedWord);
+
+
+        Serial.println("==========================================");
+        Serial.println();
+
+
+        Serial.println("Waiting for next transmission...");
+        Serial.println();
+
+
+        // Clear the previous word.
+        receivedWord = "";
+
+
+        // Go back to waiting for a NEW START.
+        state = WAITING_FOR_START;
+
+
+        // Reset variables.
+        lastReceivedValue = 0;
+        lowStartTime = 0;
+
+
+        return;
+      }
+    }
   }
 }
