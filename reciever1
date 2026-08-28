@@ -37,6 +37,12 @@ ReceiverState state = WAITING_FOR_START;
 String receivedWord = "";
 
 // ============================================================
+// RECEIVED BINARY VALUES
+// ============================================================
+
+String receivedBinary = "";
+
+// ============================================================
 // READ THE 8 GPIO INPUTS
 // ============================================================
 
@@ -66,29 +72,44 @@ void printBinary(byte value) {
 }
 
 // ============================================================
-// ADD RECEIVED CHARACTER TO THE WORD
+// STORE BINARY VALUE
 // ============================================================
 
-void addCharacterToWord(byte value) {
+void storeBinary(byte value) {
 
-  // Make sure the value is printable ASCII.
-  if (value >= 32 && value <= 126) {
-
-    char character = (char)value;
-
-    // Add the character to the complete word.
-    receivedWord += character;
-
-    Serial.print("Received: ");
-    Serial.println(character);
-
-    Serial.print("Current word: ");
-    Serial.println(receivedWord);
+  for (int bit = 7; bit >= 0; bit--) {
+    receivedBinary += String((value >> bit) & 1);
   }
+
+  receivedBinary += " ";
 }
 
 // ============================================================
-// DISPLAY COMPLETE WORD
+// RECEIVE CHARACTER
+// ============================================================
+
+void receiveCharacter(byte value) {
+
+  char character = (char)value;
+
+  // Store character in the complete word.
+  receivedWord += character;
+
+  // Store its binary representation.
+  storeBinary(value);
+
+  // Show the received character and binary value.
+  Serial.print("Received: ");
+  Serial.print(character);
+  Serial.print("    Binary: ");
+
+  printBinary(value);
+
+  Serial.println();
+}
+
+// ============================================================
+// DISPLAY COMPLETE MESSAGE
 // ============================================================
 
 void displayWord() {
@@ -98,6 +119,19 @@ void displayWord() {
   Serial.println("MESSAGE COMPLETE");
   Serial.println("==========================================");
 
+  // ----------------------------------------------------------
+  // DISPLAY BINARY VALUES FIRST
+  // ----------------------------------------------------------
+
+  Serial.println("BINARY DATA:");
+
+  Serial.println(receivedBinary);
+
+  // ----------------------------------------------------------
+  // DISPLAY COMPLETE WORD
+  // ----------------------------------------------------------
+
+  Serial.println();
   Serial.print("RECEIVED WORD: ");
   Serial.println(receivedWord);
 
@@ -161,6 +195,7 @@ void loop() {
     if (value == 0xFF) {
 
       receivedWord = "";
+      receivedBinary = "";
 
       Serial.println();
       Serial.println("NEW MESSAGE DETECTED");
@@ -197,8 +232,7 @@ void loop() {
     // Printable ASCII characters.
     if (value >= 32 && value <= 126) {
 
-      // Add character to the complete word.
-      addCharacterToWord(value);
+      receiveCharacter(value);
 
       state = WAITING_FOR_GAP;
 
@@ -231,7 +265,6 @@ void loop() {
 
       if (nextValue == 0x00) {
 
-        // Display the complete received word.
         displayWord();
 
         // Wait for a completely new START signal.
@@ -246,8 +279,7 @@ void loop() {
 
       if (nextValue >= 32 && nextValue <= 126) {
 
-        // Add next character to the complete word.
-        addCharacterToWord(nextValue);
+        receiveCharacter(nextValue);
 
         state = WAITING_FOR_GAP;
 
@@ -271,6 +303,7 @@ void loop() {
     if (value == 0xFF) {
 
       receivedWord = "";
+      receivedBinary = "";
 
       Serial.println();
       Serial.println("NEW MESSAGE DETECTED");
