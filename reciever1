@@ -5,30 +5,20 @@
 // STUDENT B - RECEIVER
 // ============================================================
 //
-// 8 DATA LINES:
+// GPIO 4  = Bit 0
+// GPIO 5  = Bit 1
+// GPIO 18 = Bit 2
+// GPIO 19 = Bit 3
+// GPIO 21 = Bit 4
+// GPIO 22 = Bit 5
+// GPIO 23 = Bit 6
+// GPIO 25 = Bit 7
 //
-// Bit 0 -> GPIO 4
-// Bit 1 -> GPIO 5
-// Bit 2 -> GPIO 18
-// Bit 3 -> GPIO 19
-// Bit 4 -> GPIO 21
-// Bit 5 -> GPIO 22
-// Bit 6 -> GPIO 23
-// Bit 7 -> GPIO 25
-//
-// SPECIAL CODES:
-//
-// 11111111 = START
-// 00000000 = GAP
-// 11111110 = END
-//
-// START, GAP, and END are handled internally.
-// They are NOT displayed in the Serial Monitor.
 // ============================================================
 
 
 // ============================================================
-// GPIO PINS
+// DATA PINS
 // ============================================================
 
 const int DATA_PINS[8] = {
@@ -37,21 +27,19 @@ const int DATA_PINS[8] = {
 
 
 // ============================================================
-// SPECIAL CODES
+// SPECIAL VALUES
 // ============================================================
 
-const byte START_CODE = 0xFF;   // 11111111
-
-const byte GAP_CODE = 0x00;     // 00000000
-
-const byte END_CODE = 0xFE;     // 11111110
+const byte START_CODE = 0xFF;
+const byte GAP_CODE   = 0x00;
+const byte END_CODE   = 0xFE;
 
 
 // ============================================================
 // RECEIVER STATES
 // ============================================================
 
-enum ReceiverState {
+enum State {
 
   WAITING_FOR_START,
 
@@ -61,24 +49,23 @@ enum ReceiverState {
 };
 
 
-ReceiverState state = WAITING_FOR_START;
+State currentState = WAITING_FOR_START;
 
 
 // ============================================================
-// RECEIVED WORD
+// MESSAGE STORAGE
 // ============================================================
 
 String receivedWord = "";
 
 
 // ============================================================
-// READ THE 8 GPIO INPUTS
+// READ EIGHT GPIO PINS
 // ============================================================
 
 byte readByte() {
 
   byte value = 0;
-
 
   for (int bit = 0; bit < 8; bit++) {
 
@@ -87,54 +74,12 @@ byte readByte() {
     value |= ((byte)bitValue << bit);
   }
 
-
   return value;
 }
 
 
 // ============================================================
-// STABLE READ
-// ============================================================
-//
-// The Receiver reads the eight GPIO pins several times.
-//
-// If all readings agree, the byte is considered stable.
-//
-// This helps prevent a single unstable reading from becoming
-// a wrong character.
-// ============================================================
-
-bool readStableByte(byte &result) {
-
-  const int REQUIRED_READS = 5;
-
-  byte firstValue = readByte();
-
-
-  // Read the same byte several times.
-  for (int i = 1; i < REQUIRED_READS; i++) {
-
-    delay(2);
-
-    byte currentValue = readByte();
-
-
-    // If the value changes, it is not stable.
-    if (currentValue != firstValue) {
-
-      return false;
-    }
-  }
-
-
-  result = firstValue;
-
-  return true;
-}
-
-
-// ============================================================
-// PRINT 8-BIT BINARY
+// PRINT BINARY
 // ============================================================
 
 void printBinary(byte value) {
@@ -142,26 +87,6 @@ void printBinary(byte value) {
   for (int bit = 7; bit >= 0; bit--) {
 
     Serial.print((value >> bit) & 1);
-  }
-}
-
-
-// ============================================================
-// WAIT FOR A STABLE VALUE
-// ============================================================
-
-byte waitForStableValue() {
-
-  byte value;
-
-  while (true) {
-
-    if (readStableByte(value)) {
-
-      return value;
-    }
-
-    delay(5);
   }
 }
 
@@ -175,7 +100,7 @@ void setup() {
   Serial.begin(115200);
 
 
-  // Configure all eight GPIO pins as INPUT.
+  // Configure eight GPIO pins as INPUT.
   for (int bit = 0; bit < 8; bit++) {
 
     pinMode(DATA_PINS[bit], INPUT);
@@ -183,9 +108,10 @@ void setup() {
 
 
   Serial.println();
-
-  Serial.println("Receiver ready.");
-
+  Serial.println("================================");
+  Serial.println("ESP32 ASCII RECEIVER");
+  Serial.println("================================");
+  Serial.println("Ready.");
   Serial.println();
 }
 
@@ -196,48 +122,32 @@ void setup() {
 
 void loop() {
 
-  byte value;
+  byte value = readByte();
 
 
   // ==========================================================
-  // STATE 1
-  // WAITING FOR START
+  // WAIT FOR START
   // ==========================================================
 
-  if (state == WAITING_FOR_START) {
-
-    value = readByte();
-
-
-    // Look for:
-    //
-    // 11111111
-    //
-    // This indicates a new message.
+  if (currentState == WAITING_FOR_START) {
 
     if (value == START_CODE) {
 
-      // Clear previous message.
+      // Start a new message.
       receivedWord = "";
 
-
-      // Move to character receiving state.
-      state = WAITING_FOR_CHARACTER;
+      currentState = WAITING_FOR_CHARACTER;
     }
-
 
     return;
   }
 
 
   // ==========================================================
-  // STATE 2
-  // WAITING FOR CHARACTER
+  // WAIT FOR CHARACTER
   // ==========================================================
 
-  if (state == WAITING_FOR_CHARACTER) {
-
-    value = readByte();
+  if (currentState == WAITING_FOR_CHARACTER) {
 
 
     // --------------------------------------------------------
@@ -251,7 +161,7 @@ void loop() {
 
 
     // --------------------------------------------------------
-    // END OF MESSAGE
+    // END OF MESSAGE.
     // --------------------------------------------------------
 
     if (value == END_CODE) {
@@ -265,9 +175,8 @@ void loop() {
       Serial.println();
 
 
-      // Wait for a completely new message.
-      state = WAITING_FOR_START;
-
+      // Wait for another START.
+      currentState = WAITING_FOR_START;
 
       return;
     }
@@ -284,60 +193,30 @@ void loop() {
 
 
     // --------------------------------------------------------
-    // Check for printable ASCII.
+    // Check whether value is printable ASCII.
     // --------------------------------------------------------
 
     if (value >= 32 && value <= 126) {
 
-
-      // ------------------------------------------------------
-      // Verify that the byte is stable.
-      // ------------------------------------------------------
-
-      byte stableValue;
-
-      if (!readStableByte(stableValue)) {
-
-        return;
-      }
+      char character = (char)value;
 
 
-      // Make sure the stable value is still printable ASCII.
-      if (stableValue < 32 || stableValue > 126) {
-
-        return;
-      }
-
-
-      char character = (char)stableValue;
-
-
-      // ------------------------------------------------------
-      // Add character to the received word.
-      // ------------------------------------------------------
-
+      // Add character to message.
       receivedWord += character;
 
 
-      // ------------------------------------------------------
-      // DISPLAY CHARACTER + BINARY
-      // ------------------------------------------------------
-
+      // Display character.
       Serial.print(character);
 
       Serial.print("  ");
 
-      printBinary(stableValue);
+      printBinary(value);
 
       Serial.println();
 
 
-      // ------------------------------------------------------
-      // Wait for GAP before accepting another character.
-      // ------------------------------------------------------
-
-      state = WAITING_FOR_GAP;
-
+      // Wait for GAP.
+      currentState = WAITING_FOR_GAP;
 
       return;
     }
@@ -348,25 +227,17 @@ void loop() {
 
 
   // ==========================================================
-  // STATE 3
-  // WAITING FOR GAP
+  // WAIT FOR GAP
   // ==========================================================
 
-  if (state == WAITING_FOR_GAP) {
+  if (currentState == WAITING_FOR_GAP) {
 
-    value = readByte();
-
-
-    // Wait until all eight GPIO lines are LOW.
+    // Wait until all eight data lines become LOW.
 
     if (value == GAP_CODE) {
 
-      // GAP detected.
-
-      // Now wait for the next character.
-      state = WAITING_FOR_CHARACTER;
+      currentState = WAITING_FOR_CHARACTER;
     }
-
 
     return;
   }
